@@ -1,0 +1,88 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "val imagenet",
+            "type": "python",
+            "request": "launch",
+            "program": "~/anaconda3/envs/swin/lib/python3.7/site-packages/torch/distributed/launch.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--nproc_per_node=1",
+                "--master_port=12345",
+                "main.py",
+                "--eval",
+                "--cfg=configs/swin_base_patch4_window7_224.yaml",
+                "--resume=swin_base_patch4_window7_224.pth",
+                "--data-path=~/onion_rain/pytorch/dataset/imagenet",
+                "--amp-opt-level=O0",
+                "--dataset=imagenet"
+            ]
+        },
+        {
+            "name": "train imagenet",
+            "type": "python",
+            "request": "launch",
+            "program": "~/anaconda3/envs/swin/lib/python3.7/site-packages/torch/distributed/launch.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--nproc_per_node=1",
+                "--master_port=12345",
+                "main.py",
+                "--batch-size=32",
+                "--cfg=configs/swin_base_patch4_window7_224.yaml",
+                "--data-path=~/onion_rain/pytorch/dataset/imagenet",
+                "--amp-opt-level=O0",
+                "--dataset=imagenet",
+                "--tag=imagenet"
+            ]
+        },
+        {
+            "name": "val plant",
+            "type": "python",
+            "request": "launch",
+            "program": "~/anaconda3/envs/swin/lib/python3.7/site-packages/torch/distributed/launch.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--nproc_per_node=1",
+                "--master_port=12345",
+                "main.py",
+                "--eval",
+                "--batch-size=128",
+                "--cfg=configs/swin_base_patch4_window7_224.yaml",
+                "--resume=output/swin_base_patch4_window7_224/plant/ckpt_epoch_0.pth",
+                "--data-path=~/onion_rain/pytorch/dataset/plant-pathology-2021-fgvc8",
+                "--amp-opt-level=O0",
+                "--dataset=plant"
+            ]
+        },
+        {
+            "name": "train plant",
+            "type": "python",
+            "request": "launch",
+            "program": "~/anaconda3/envs/swin/lib/python3.7/site-packages/torch/distributed/launch.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--nproc_per_node=1",
+                "--master_port=12340",
+                "main.py",
+                "--batch-size=32",
+                "--cfg=configs/swin_base_patch4_window7_224.yaml",
+                "--data-path=~/onion_rain/pytorch/dataset/plant-pathology-2021-fgvc8",
+                "--amp-opt-level=O0",
+                "--dataset=plant",
+                "--tag=plant"
+            ]
+        }
+    ]
+}

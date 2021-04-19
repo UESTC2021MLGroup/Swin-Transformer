@@ -1,0 +1,1 @@
+python -m torch.distributed.launch --nproc_per_node 8 --master_port 12345  main.py --cfg configs/swin_base_patch4_window7_224.yaml --data-path ~/onion_rain/pytorch/dataset/imagenet --batch-size 64 --output output/ --tag onion1 --amp-opt-level O0

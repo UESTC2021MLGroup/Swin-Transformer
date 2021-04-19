@@ -16,7 +16,7 @@ import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
-from timm.utils import accuracy, AverageMeter
+from timm.utils import accuracy, AverageMeter, tfpn
 
 from config import get_config
 from models import build_model
@@ -66,10 +66,18 @@ def parse_option():
     # distributed training
     parser.add_argument("--local_rank", type=int, required=True, help='local rank for DistributedDataParallel')
 
+    parser.add_argument('--dataset', type=str, default="imagenet", help='dataset name')
+
     args, unparsed = parser.parse_known_args()
 
     config = get_config(args)
 
+    config.defrost()
+    if args.dataset == "plant":
+        config.AUG.MIXUP = 0
+        config.AUG.CUTMIX = 0
+    config.freeze()
+    
     return args, config
 
 
@@ -79,7 +87,7 @@ def main(config):
     logger.info(f"Creating model:{config.MODEL.TYPE}/{config.MODEL.NAME}")
     model = build_model(config)
     model.cuda()
-    logger.info(str(model))
+    # logger.info(str(model))
 
     optimizer = build_optimizer(config, model)
     if config.AMP_OPT_LEVEL != "O0":
@@ -97,6 +105,9 @@ def main(config):
 
     if config.AUG.MIXUP > 0.:
         # smoothing is handled with mixup label transform
+        criterion = SoftTargetCrossEntropy()
+    elif config.DATA.DATASET == "plant":
+        # criterion = torch.nn.BCELoss(reduction='mean')
         criterion = SoftTargetCrossEntropy()
     elif config.MODEL.LABEL_SMOOTHING > 0.:
         criterion = LabelSmoothingCrossEntropy(smoothing=config.MODEL.LABEL_SMOOTHING)
@@ -117,10 +128,15 @@ def main(config):
         else:
             logger.info(f'no checkpoint found in {config.OUTPUT}, ignoring auto resume')
 
+    class_type = "single_class" if config.DATA.DATASET == "imagenet" else "multi_class"
     if config.MODEL.RESUME:
         max_accuracy = load_checkpoint(config, model_without_ddp, optimizer, lr_scheduler, logger)
-        acc1, acc5, loss = validate(config, data_loader_val, model)
-        logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {acc1:.1f}%")
+        acc1, acc5, loss = validate(config, data_loader_val, model, type=class_type)
+        if class_type == "single_class":
+            logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {acc1:.1f}%")
+        else:
+            logger.info(f"f1_score of the network on the {len(dataset_val)} test images: {acc1:.1f}")
+
         if config.EVAL_MODE:
             return
 
@@ -137,10 +153,14 @@ def main(config):
         if dist.get_rank() == 0 and (epoch % config.SAVE_FREQ == 0 or epoch == (config.TRAIN.EPOCHS - 1)):
             save_checkpoint(config, epoch, model_without_ddp, max_accuracy, optimizer, lr_scheduler, logger)
 
-        acc1, acc5, loss = validate(config, data_loader_val, model)
-        logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {acc1:.1f}%")
+        acc1, acc5, loss = validate(config, data_loader_val, model, type=class_type)
         max_accuracy = max(max_accuracy, acc1)
-        logger.info(f'Max accuracy: {max_accuracy:.2f}%')
+        if class_type == "single_class":
+            logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {acc1:.1f}%")
+            logger.info(f'Max accuracy: {max_accuracy:.2f}%')
+        else:
+            logger.info(f"f1_score of the network on the {len(dataset_val)} test images: {acc1:.1f}%")
+            logger.info(f'Max f1_score: {max_accuracy:.2f}')
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -219,7 +239,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
             etas = batch_time.avg * (num_steps - idx)
             logger.info(
                 f'Train: [{epoch}/{config.TRAIN.EPOCHS}][{idx}/{num_steps}]\t'
-                f'eta {datetime.timedelta(seconds=int(etas))} lr {lr:.6f}\t'
+                f'eta {datetime.timedelta(seconds=int(etas))} lr {lr:.10f}\t'
                 f'time {batch_time.val:.4f} ({batch_time.avg:.4f})\t'
                 f'loss {loss_meter.val:.4f} ({loss_meter.avg:.4f})\t'
                 f'grad_norm {norm_meter.val:.4f} ({norm_meter.avg:.4f})\t'
@@ -228,8 +248,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch, mix
     logger.info(f"EPOCH {epoch} training takes {datetime.timedelta(seconds=int(epoch_time))}")
 
 
-@torch.no_grad()
-def validate(config, data_loader, model):
+def validate_single_class(config, data_loader, model):
     criterion = torch.nn.CrossEntropyLoss()
     model.eval()
 
@@ -274,6 +293,65 @@ def validate(config, data_loader, model):
     logger.info(f' * Acc@1 {acc1_meter.avg:.3f} Acc@5 {acc5_meter.avg:.3f}')
     return acc1_meter.avg, acc5_meter.avg, loss_meter.avg
 
+def validate_multi_class(config, data_loader, model):
+    criterion = SoftTargetCrossEntropy()
+    model.eval()
+
+    batch_time = AverageMeter()
+    loss_meter = AverageMeter()
+    ''' calculate loss and f1 score '''
+    tp_sum, fp_sum, fn_sum = 0, 0, 0
+
+    end = time.time()
+    for idx, (images, target) in enumerate(data_loader):
+        images = images.cuda(non_blocking=True)
+        target = target.cuda(non_blocking=True)
+
+        # compute output
+        output = model(images)
+
+        # measure accuracy and record loss
+        loss = criterion(output, target)
+        
+        tp, fp, fn = tfpn(output, target)        
+        # acc1, acc5 = accuracy(output, target, topk=(1, 5))
+
+        # acc1 = reduce_tensor(acc1)
+        # acc5 = reduce_tensor(acc5)
+        # loss = reduce_tensor(loss)
+
+        loss_meter.update(loss.item(), target.size(0))
+        tp_sum += tp
+        fp_sum += fp
+        fn_sum += fn
+
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
+
+        if idx % config.PRINT_FREQ == 0:
+            memory_used = torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)
+            logger.info(
+                f'Test: [{idx}/{len(data_loader)}]\t'
+                f'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                f'Loss {loss_meter.val:.4f} ({loss_meter.avg:.4f})\t'
+                f'precision {tp/(tp+fp):.3f} \t'
+                f'recall {tp/(tp+fn):.3f} \t'
+                f'Mem {memory_used:.0f}MB')
+    precision = tp/(tp+fp)
+    recall = tp/(tp+fn)
+    f1_score = 2*precision*recall / (precision+recall)
+    logger.info(f' * precision {precision:.3f} recall {recall:.3f} f1 {f1_score:.3f}')
+    return f1_score, precision, recall
+
+
+@torch.no_grad()
+def validate(config, data_loader, model, type="single_class"):
+    if type == "single_class":
+        return validate_single_class(config, data_loader, model)
+    else:
+        return validate_multi_class(config, data_loader, model)
+    
 
 @torch.no_grad()
 def throughput(data_loader, model, logger):

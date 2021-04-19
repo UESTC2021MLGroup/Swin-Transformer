@@ -16,6 +16,7 @@ from timm.data import create_transform
 from timm.data.transforms import _pil_interp
 
 from .cached_image_folder import CachedImageFolder
+from .kaggle_dataset import KaggleDataset
 from .samplers import SubsetRandomSampler
 
 
@@ -82,6 +83,9 @@ def build_dataset(is_train, config):
             root = os.path.join(config.DATA.DATA_PATH, prefix)
             dataset = datasets.ImageFolder(root, transform=transform)
         nb_classes = 1000
+    elif config.DATA.DATASET == 'plant':
+        dataset = KaggleDataset(is_train)
+        nb_classes = 7
     else:
         raise NotImplementedError("We only support ImageNet Now.")
 

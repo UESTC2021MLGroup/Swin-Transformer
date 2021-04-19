@@ -1,0 +1,1 @@
+python -m torch.distributed.launch --nproc_per_node 4 --master_port 12341 main.py --eval --cfg configs/swin_base_patch4_window7_224.yaml --resume swin_base_patch4_window7_224.pth --data-path ~/onion_rain/pytorch/dataset/imagenet --amp-opt-level O0
