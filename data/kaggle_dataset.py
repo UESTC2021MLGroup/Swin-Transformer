@@ -49,7 +49,7 @@ class KaggleDataset(Dataset):
 
         labels = self.labels[index]
         labels = labels[1:-1].split(" ")
-        label = np.array([float(x) for x in labels])
+        label = np.array([np.float32(x) for x in labels])
         
         return image, label
 

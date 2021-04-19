@@ -25,6 +25,7 @@ from lr_scheduler import build_scheduler
 from optimizer import build_optimizer
 from logger import create_logger
 from utils import load_checkpoint, save_checkpoint, get_grad_norm, auto_resume_helper, reduce_tensor
+from loss import BCELoss
 
 try:
     # noinspection PyUnresolvedReferences
@@ -32,6 +33,10 @@ try:
 except ImportError:
     amp = None
 
+# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+# fuser -v /dev/nvidia* |awk '{for(i=1;i<=NF;i++)print "kill -9 " $i;}' | sh
+# ssh -L 8097:nico1:8097 jumper -p 2222
+# du -sh * | sort -n
 
 def parse_option():
     parser = argparse.ArgumentParser('Swin Transformer training and evaluation script', add_help=False)
@@ -107,8 +112,7 @@ def main(config):
         # smoothing is handled with mixup label transform
         criterion = SoftTargetCrossEntropy()
     elif config.DATA.DATASET == "plant":
-        # criterion = torch.nn.BCELoss(reduction='mean')
-        criterion = SoftTargetCrossEntropy()
+        criterion = BCELoss()
     elif config.MODEL.LABEL_SMOOTHING > 0.:
         criterion = LabelSmoothingCrossEntropy(smoothing=config.MODEL.LABEL_SMOOTHING)
     else:
@@ -154,13 +158,16 @@ def main(config):
             save_checkpoint(config, epoch, model_without_ddp, max_accuracy, optimizer, lr_scheduler, logger)
 
         acc1, acc5, loss = validate(config, data_loader_val, model, type=class_type)
+        if not (dist.get_rank() == 0 and (epoch % config.SAVE_FREQ == 0 or epoch == (config.TRAIN.EPOCHS - 1))):
+            if acc1 > max_accuracy:
+                save_checkpoint(config, epoch, model_without_ddp, max_accuracy, optimizer, lr_scheduler, logger)
         max_accuracy = max(max_accuracy, acc1)
         if class_type == "single_class":
-            logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {acc1:.1f}%")
-            logger.info(f'Max accuracy: {max_accuracy:.2f}%')
+            logger.info(f"Accuracy of the network on the {len(dataset_val)} test images: {acc1:.3f}%")
+            logger.info(f'Max accuracy: {max_accuracy:.3f}%')
         else:
-            logger.info(f"f1_score of the network on the {len(dataset_val)} test images: {acc1:.1f}%")
-            logger.info(f'Max f1_score: {max_accuracy:.2f}')
+            logger.info(f"f1_score of the network on the {len(dataset_val)} test images: {acc1:.3f}")
+            logger.info(f'Max f1_score: {max_accuracy:.3f}')
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))

@@ -1,1 +1,1 @@
-python -m torch.distributed.launch --nproc_per_node 8 --master_port 12341  main.py --cfg configs/swin_base_patch4_window7_224.yaml --data-path=~/onion_rain/pytorch/dataset/plant-pathology-2021-fgvc8 --dataset=plant --batch-size 64 --output output/ --tag plant1 --amp-opt-level O0
+python -m torch.distributed.launch --nproc_per_node 8 --master_port 12341  main.py --cfg configs/swin_base_patch4_window7_224.yaml --data-path=~/onion_rain/pytorch/dataset/plant-pathology-2021-fgvc8 --dataset=plant --batch-size 64 --output output/ --tag plant_bce --amp-opt-level O0
